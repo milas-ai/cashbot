@@ -1,7 +1,8 @@
 import telebot, json, os, re, sys
 from datetime import datetime
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-API_TOKEN = "<BOT-TOKEN>"
+API_TOKEN = "."
 
 data_json = {}
 
@@ -23,12 +24,12 @@ def loadJson():
 @bot.message_handler(commands=["start"])
 def command_start(message):
     loadJson()
-    bot.send_message(message.chat.id, "Bem vinde ao <Bot-name>)!\nPosso te ajudar a registrar suas despesas do mês, precisando de qualquer ajuda basta digitar /help")
+    bot.send_message(message.chat.id, "Bem vinde ao <Bot-name>!\nPosso te ajudar a registrar suas despesas do mês, precisando de qualquer ajuda basta digitar /help")
 
 # handle the "/help" command
 @bot.message_handler(commands=["help"])
 def command_help(message):
-    bot.send_message(message.chat.id, "Para anotar uma nova despesa é só me mandar:\nR$0.00 - descrição\n\nSe quiser ver seu histórico de despesas utilize /resume\nSe quiser resetar o histórico de despesas utilize /reset\nSe quiser calcular a soma das despesas utilize /boleto")
+    bot.send_message(message.chat.id, "Para anotar uma nova despesa é só me mandar uma mensagem com:\n*valor* - *descrição*\n\n/resume Para ver seu histórico de despesas\n/delete Para apagar uma despesa\n/reset Para resetar o histórico de despesas\n/boleto Para calcular a soma das despesas", "Markdown")
 
 # handle the "/resume" command
 @bot.message_handler(commands=["resume"])
@@ -39,7 +40,7 @@ def command_resume(message):
     if (str(Id) in data_json):
         ret = "*Histórico:*\n"
         for regist in data_json[str(Id)]:
-            ret = ret + regist.replace(","," / R$",1).replace(","," / ") + "\n"
+            ret = ret + regist.replace(","," ~ *[R$",1).replace(",","]*:\n") + "\n"
     else:
         ret = "Opa, parece que você não tem gastos anotados!"
     bot.send_message(Id, ret, "Markdown")
@@ -70,20 +71,49 @@ def command_boleto(message):
         for regist in data_json[str(Id)]:
             content = regist.split(",")
             tot = tot + float(content[1])
-        ret = ret + str(tot)
+        ret = ret + "{:.2f}".format(tot)
     else:
         ret = "Opa, parece que você não tem gastos anotados!"
     bot.send_message(Id, ret, "Markdown")
 
+# handle the "/delete" command
+@bot.message_handler(commands=["delete"])
+def command_delete(message):
+    global data_json
+    loadJson()
+    Id = message.chat.id
+    if (str(Id) in data_json):
+        x = 0
+        markup = InlineKeyboardMarkup()
+        markup.row_width = 1
+        for regist in data_json[str(Id)]:
+            x = x + 1
+            markup.add(InlineKeyboardButton(regist.replace(","," ~ [R$",1).replace(",","]:\n"), callback_data="{}".format(x)))
+        bot.send_message(Id, "Qual despesa gostaria de *deletar*?", "Markdown", reply_markup=markup)
+    else:
+        bot.send_message(Id,"Opa, parece que você não tem gastos anotados!")
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    global data_json
+    loadJson()
+    try:
+        del data_json[str(call.from_user.id)][int(call.data)-1]
+        if not data_json[str(call.from_user.id)]:
+            del data_json[str(call.from_user.id)]
+        writeJson(data_json)
+        bot.send_message(call.from_user.id,"Prontinho")
+    except:
+        bot.send_message(call.from_user.id, "Ocorreu um erro, tente novamente mais tarde")
 
 # handle normal messages
 @bot.message_handler(func=lambda message: True)
 def new_message(message):
-    if re.match("^R?\$[0-9][0-9]*\.?[0-9]* - ", message.text):
+    if re.match("^R?\$?[0-9][0-9]*\.?,?[0-9]* - ", message.text):
         global data_json
         loadJson()
         content = message.text.split(" - ")
-        amountText = content[0].replace("R","").replace("$","")
+        amountText = content[0].replace("R","").replace("$","").replace(",",".")
         descText = content[1]
         dateText = datetime.today().strftime("%d/%m/%y"+" - "+"%H:%M")
         writeJson(addToHistory(message.chat.id, "{},{},{}".format(dateText,amountText,descText)))
